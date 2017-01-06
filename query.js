@@ -21,25 +21,105 @@ db.loadDatabase({}, function (err) {
   const deltaLon  = 2 * Math.abs(center[0] - lowerLeft[0]);
   const deltaLat  = 2 * Math.abs(center[1] - lowerLeft[1]);
 
+  // data bounds
+  const upperRight = [lowerLeft[0]+deltaLon,];
 
-  const locQuery = (options) => {  
-    return collection.chain().find({ 
-      $and: [
-        {
-          latitude  : { 
-            $between: [options.lowerLatitude,options.upperLatitude] 
-          }        
-        },
-        {
-          longitude  : { 
-            $between: [options.lowerLongitude,options.upperLongitude] 
-          }        
-        },
-      ]
-    }).simplesort('ts',true).limit(options.N).data();
+  const tHour  = 1000 * 60 * 60
+  const tDay   = tHour * 24
+  const tWeek  = tDay * 7;
+  const tMonth = tDay * 30;
+
+  // heuristic :(
+  const areaThreshold = 0.000005;
+  
+
+  const locQuery = (options) => {
+    const lowerLatitude  = options.lowerLatitude;
+    const upperLatitude  = options.upperLatitude;
+    const lowerLongitude = options.lowerLongitude;
+    const upperLongitude = options.upperLongitude;
+    const N              = options.N;
+
+
+    const bOutsideData   = upperLatitude  < lowerLeft[1] || lowerLatitude  > lowerLeft[1]+deltaLat || 
+                           upperLongitude < lowerLeft[0] || lowerLongitude > lowerLeft[0]+deltaLon;
+    if (bOutsideData) {
+      return [];
+    }
+
+    const dLat  = upperLatitude  - lowerLatitude;
+    const dLon  = upperLongitude - lowerLongitude;
+    const fArea = dLat*dLon;
+
+    // console.log('area',fArea);
+
+    // big query
+    if (fArea > areaThreshold) {
+      let tStep  = tDay;
+
+      let aResults = [];
+
+      let tDBMin = 1477721364709;
+      let tDBMax = 1483710881138;
+      // for actual data...
+      // const tNow   = Date.now();
+      // let tStart   = tNow - tStep;
+      // let tEnd     = tNow;
+      let tEnd   = tDBMax+1
+      let tStart = tEnd - tStep;
+      // console.log('db min,max',[tDBMin,tDBMax],'query',[tStart,tEnd]);
+
+      let aData = collection.find({ ts: { $between : [tStart,tEnd] }});
+      while (aResults.length < options.N && aData.length) {
+        let aInWindow = [];
+        for (let i = 0; i < aData.length;i++) {
+          let oData = aData[i];
+          if (oData.latitude  > lowerLatitude  && oData.latitude  < upperLatitude &&
+              oData.longitude > lowerLongitude && oData.longitude < upperLongitude)
+          {
+            aInWindow.push(oData);
+          }
+        }
+        // console.log('area',fArea,'aInWindow',aInWindow.length,'tStart',tStart,'tEnd',tEnd,'aResults.length',aResults.length);
+
+        // data sorted when returned...
+        // aInWindow = aInWindow.sort( (a,b) => b.ts - a.ts );
+
+        let nNeeded = N - aResults.length;
+        for (let i = 0;i < nNeeded && i < aInWindow.length;i++) {
+          aResults.push(aInWindow[i]);
+        }
+        // if not done, increase tStep and check again
+        if (aResults.length < N) {
+          tStep  *= 2;
+          tEnd   = tStart;          
+          tStart -= tStep;
+          aData = collection.find({ ts: { $between : [tStart,tEnd] }});
+        }
+      }
+      // console.log('final size',aResults.length)
+      return aResults;
+    }
+    else { // smaller areas
+      return collection.chain().find({ 
+        $and: [
+          {
+            latitude  : { 
+              $between: [options.lowerLatitude,options.upperLatitude] 
+            }        
+          },
+          {
+            longitude  : { 
+              $between: [options.lowerLongitude,options.upperLongitude] 
+            }        
+          },
+        ]
+      }).simplesort('ts',true).limit(options.N).data();
+    }
+
   }
 
-  const NQueries = 100;
+  const NQueries = 1000;
   const halfWinLonScale = 0.04;
   const halfWinLatScale = 0.04;
 
@@ -52,8 +132,12 @@ db.loadDatabase({}, function (err) {
   for (let i=0;i < NQueries;i++) {
     const searchLon       = lowerLeft[0] + Math.random() * deltaLon;
     const searchLat       = lowerLeft[1] + Math.random() * deltaLat;
+    // const searchLon       = lowerLeft[0] + deltaLon/2;
+    // const searchLat       = lowerLeft[1] + deltaLat/2;
     const halfWinLon      = Math.random() * halfWinLonScale;
     const halfWinLat      = Math.random() * halfWinLatScale;
+    // const halfWinLon      = halfWinLonScale;
+    // const halfWinLat      = halfWinLatScale;
 
     const lowerLatitude   = searchLat - halfWinLat;
     const lowerLongitude  = searchLon - halfWinLon;

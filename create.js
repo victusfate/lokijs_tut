@@ -24,14 +24,20 @@ const center    = [-73.993549, 40.727248];
 const lowerLeft = [-74.009180, 40.716425];
 const deltaLon  = Math.abs(center[0] - lowerLeft[0]);
 const deltaLat  = Math.abs(center[1] - lowerLeft[1]);
-let   tPrevious = 1475431264754;
+
+const tInterval = 60 * 1000;
+const tFactor   = 2 * tInterval;
+let   tPrevious = Date.now() - N * tInterval;
 
 let aData = [];
 for (let i = 0; i < N; i++) {
   const incidentLon = lowerLeft[0] + Math.random() * deltaLon;
   const incidentLat = lowerLeft[1] + Math.random() * deltaLat;
-  tPrevious         += Math.floor(Math.random() * 60 * 1000); // random time after previous
+  tPrevious         += Math.floor(Math.random() * tFactor);
   const oIncident = { id: '-k'+i, latitude: incidentLat, longitude: incidentLon, ts: tPrevious };
+  if (i === 0 || i === N - 1) {
+    console.log(oIncident)
+  }
   collection.insert(oIncident);
 }
 const t1 = Date.now();
